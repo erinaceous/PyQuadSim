@@ -8,8 +8,8 @@ Translates simulation values from V-REP to sensor values for quadrotor model
     Copyright (C) 2014 Bipeen Acharya, Fred Gisa, and Simon D. Levy
 
     This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Lesser General Public License as 
-    published by the Free Software Foundation, either version 3 of the 
+    it under the terms of the GNU Lesser General Public License as
+    published by the Free Software Foundation, either version 3 of the
     License, or (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -22,7 +22,7 @@ Translates simulation values from V-REP to sensor values for quadrotor model
 # Import your controller here =====================================================
 
 #from quadstick import ExtremePro3D as Controller
-from quadstick import PS3 as Controller
+#from quadstick import PS3 as Controller
 #from quadstick.rc.spektrum import DX8 as Controller
 #from quadstick.rc.frsky import Taranis as Controller
 
@@ -42,11 +42,80 @@ from math import pi
 import struct
 import time
 import random
+import socket
+import threading
+import subprocess
+import cjson
 
 from socket_server import serve_socket
 from fmu import FMU
 from coordinates import CoordinateCalculator
 from geometry import rotate
+
+# Thread for receiving data from track_targets.py
+class QuadTargetController(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.pitch = 0.0
+        self.roll = 0.0
+        self.yaw = 0.0
+        self.throt = 0.30
+        self.maxDist = 15.0
+        self.dist = 15.0
+        self.switch = 0
+        self.running = True
+        self.last = time.time()
+
+    def run(self):
+        time.sleep(2)  # let v-rep start up properly
+        local = threading.local()
+        os.environ["QUADTARGET_CONFIG"] =\
+            '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/config_sim.ini'
+        proc = subprocess.Popen(
+            '/home/owain/Projects/quadtargetfsm/QuadTarget',
+            stdout=subprocess.PIPE
+        )
+        time.sleep(2)  # let QuadTarget chew through some initial frames
+        while self.running:
+            if proc.poll() is not None:
+                break
+
+            out = proc.stdout.readline()
+            if out != "":
+                try:
+                    dist = 1.0
+                    decoded = cjson.decode(out)
+                    if 'target' in decoded.keys()\
+                    and decoded['target'] is not None:
+                        dist = decoded['target']['distance(m)']
+                        if dist > self.maxDist:
+                            dist = self.maxDist
+                        if dist < 1:
+                            dist = 1.0
+                        dist = dist / self.maxDist
+                    self.pitch = (-0.5 + (1 * decoded['sticks']['pitch'])) * dist
+                    self.roll = (0.5 - (1 * decoded['sticks']['roll'])) * dist
+                    # self.yaw = 1.0 - (2 * decoded['sticks']['yaw'])
+                    # self.throt = 0
+                    self.throt -= (dist * 0.001)
+                    if self.throt < 0.15:
+                        self.throt = 0.15
+                except Exception as e:
+                    print(e, out)
+                    continue
+            else:
+                print("No input")
+        proc.kill()
+
+    def poll(self):
+        # demands: pitch, roll, yaw, throttle, "switchval" (leave at 0)
+        demands = (self.pitch, self.roll, self.yaw, self.throt, self.switch)
+        return demands
+        self.last = time.time()
+
+    def error(self):
+        self.running = False
+
 
 # Helper functions ================================================================
 
@@ -59,7 +128,7 @@ def unpackFloats(msg, nfloats):
     return struct.unpack('f'*nfloats, msg)
 
 def receiveFloats(client, nfloats):
- 
+
     # We use 32-bit floats
     msgsize = 4 * nfloats
 
@@ -74,21 +143,21 @@ def receiveFloats(client, nfloats):
             return None
 
     return unpackFloats(msg, nfloats)
-    
+
 def receiveString(client):
-    
+
     return client.recv(int(receiveFloats(client, 1)[0]))
 
 def scalarTo3D(s, a):
 
     return [s*a[2], s*a[6], s*a[10]]
-    
+
 # LogFile class ==========================================================================================================
 
 class LogFile(object):
 
     def __init__(self, directory):
- 
+
         self.fd = open(directory + '/' + time.strftime('%d_%b_%Y_%I_%M_%S') + '.log', 'w')
 
     def writeln(self, string):
@@ -103,7 +172,9 @@ class LogFile(object):
 # Initialization ==========================================================================================================
 
 # Require controller
-controller = Controller(('Stabilize', 'Alt-hold', 'Pos-hold'))
+# controller = Controller(('Stabilize', 'Alt-hold', 'Pos-hold'))
+controller = QuadTargetController()
+controller.start()
 
 # Serve a socket on the port indicated in the first command-line argument
 client = serve_socket(int(argv[1]))
@@ -125,7 +196,7 @@ if not os.path.exists(logdir):
 # Open logfile named by current date, time
 logfile = LogFile(logdir)
 
-# Create an FMU object for  pitch, roll, yaw, altitude correction.  
+# Create an FMU object for  pitch, roll, yaw, altitude correction.
 # Pass it the logfile object in case it needs to write to the logfile.
 fmu = FMU(logfile)
 
@@ -148,14 +219,14 @@ while True:
         # Quit on timeout
         if not clientData: exit(0)
 
-        # Unpack IMU data        
+        # Unpack IMU data
         timestepSeconds = clientData[0]
         positionXMeters = clientData[1]
         positionYMeters = clientData[2]
         positionZMeters = clientData[3]
         alphaRadians    = clientData[4]
         betaRadians     = clientData[5]
-        gammaRadians    = clientData[6]    
+        gammaRadians    = clientData[6]
 
         # Unpack propeller matrices
         propellerMatrices = [[0]*12 for i in range(4)]
@@ -167,7 +238,7 @@ while True:
         # Add some Guassian noise to position
         positionXMeters = random.gauss(positionXMeters, GPS_NOISE_METERS)
         positionYMeters = random.gauss(positionYMeters, GPS_NOISE_METERS)
-            
+
         # Convert Euler angles to pitch, roll, yaw
         # See http://en.wikipedia.org/wiki/Flight_dynamics_(fixed-wing_aircraft) for positive/negative orientation
         rollAngleRadians, pitchAngleRadians = rotate((alphaRadians, betaRadians), gammaRadians)
@@ -179,6 +250,7 @@ while True:
 
         # Poll controller
         demands = controller.poll()
+        print(demands)
 
         # Get motor thrusts from FMU model
         thrusts = fmu.getMotors((pitchAngleRadians, rollAngleRadians, yawAngleRadians), altitudeMeters, \
@@ -187,7 +259,7 @@ while True:
 
         # Force is a function of particle count
         particleCount = int(particleCountPerSecond * timestepSeconds)
-     
+
         # Compute force and torque for each propeller
         forcesAndTorques = [0]*24
         for i in range(4):

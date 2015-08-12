@@ -113,6 +113,10 @@ if (sim_call_type==sim_childscriptcall_initialization) then
 
 end 
 
+if (sim_call_type==sim_childscriptcall_cleanup) then
+    simLaunchExecutable("/usr/bin/killall", "QuadTarget")
+end
+
 -- Looping code =================================================================================
 
 if (sim_call_type==sim_childscriptcall_actuation) then 
