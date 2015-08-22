@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 '''
 pyquadsim_server.py - Automatically-launched Python server script for PyQuadSim
@@ -29,7 +29,7 @@ Translates simulation values from V-REP to sensor values for quadrotor model
 # Simulation parameters ===========================================================
 
 # XXX Unrealistic GPS simulation (perfect accuracy
-GPS_NOISE_METERS = 0
+GPS_NOISE_METERS = 0.01
 
 # Timeout for receiving data from client
 TIMEOUT_SEC      = 1.0
@@ -59,10 +59,10 @@ class QuadTargetController(threading.Thread):
         self.pitch = 0.0
         self.roll = 0.0
         self.yaw = 0.0
-        self.throt = 0.30
+        self.throt = 0.75
         self.maxDist = 15.0
         self.dist = 15.0
-        self.switch = 0
+        self.switch = 1  # switch mode 1 == ALT hold
         self.running = True
         self.last = time.time()
 
@@ -70,7 +70,7 @@ class QuadTargetController(threading.Thread):
         time.sleep(2)  # let v-rep start up properly
         local = threading.local()
         os.environ["QUADTARGET_CONFIG"] =\
-            '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/config_sim.ini'
+            '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/cfg/config_sim.ini'
         proc = subprocess.Popen(
             '/home/owain/Projects/quadtargetfsm/QuadTarget',
             stdout=subprocess.PIPE
@@ -80,6 +80,7 @@ class QuadTargetController(threading.Thread):
             if proc.poll() is not None:
                 break
 
+            proc.stdin.write('\n' * 2)
             out = proc.stdout.readline()
             if out != "":
                 try:
@@ -93,13 +94,13 @@ class QuadTargetController(threading.Thread):
                         if dist < 1:
                             dist = 1.0
                         dist = dist / self.maxDist
-                    self.pitch = (-0.5 + (1 * decoded['sticks']['pitch'])) * dist
-                    self.roll = (0.5 - (1 * decoded['sticks']['roll'])) * dist
+                    self.pitch = (-1.0 + (2 * decoded['sticks']['pitch']))
+                    self.roll = (1.0 - (2 * decoded['sticks']['roll']))
                     # self.yaw = 1.0 - (2 * decoded['sticks']['yaw'])
                     # self.throt = 0
                     self.throt -= (dist * 0.001)
-                    if self.throt < 0.15:
-                        self.throt = 0.15
+                    if self.throt < 0.10:
+                        self.throt = 0.10
                 except Exception as e:
                     print(e, out)
                     continue

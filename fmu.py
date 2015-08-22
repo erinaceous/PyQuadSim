@@ -17,8 +17,8 @@ fmu.py - Flight Management Unit class
 
 # PID parameters (I is currently unused) ==========================================
 
-IMU_PITCH_ROLL_Kp       = .25
-IMU_PITCH_ROLL_Kd       = 0.1
+IMU_PITCH_ROLL_Kp       = .5
+IMU_PITCH_ROLL_Kd       = 0.5
 
 IMU_YAW_Kp 	            = 1.0
 IMU_YAW_Kd 	            = 0.4
