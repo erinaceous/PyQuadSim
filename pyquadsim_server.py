@@ -69,8 +69,9 @@ class QuadTargetController(threading.Thread):
     def run(self):
         time.sleep(2)  # let v-rep start up properly
         local = threading.local()
-        os.environ["QUADTARGET_CONFIG"] =\
-            '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/cfg/config_sim.ini'
+        os.environ["QUADTARGET_CONFIGS"] =\
+            '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/cfg/defaults.ini '\
+            + '/home/owain/Dropbox/Aber/MSc_Dissertation/code/QuadTargetFSM/cfg/config_sim.ini'
         proc = subprocess.Popen(
             '/home/owain/Projects/quadtargetfsm/QuadTarget',
             stdout=subprocess.PIPE
